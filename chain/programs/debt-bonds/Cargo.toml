@@ -1,0 +1,22 @@
+[package]
+name = "debt-bonds"
+version = "0.1.0"
+description = "Debt Bonds Anchor program"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "debt_bonds"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+
+[dependencies]
+anchor-lang = "0.31.1"
+
