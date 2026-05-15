@@ -4,16 +4,15 @@ Fresh project scaffold for a Solana debt-bond dApp.
 
 - On-chain program in `chain/` (Anchor + Rust).
 - Web dApp in `dapp/` (Next.js 16 App Router + Solana wallet adapter).
-
-This MVP only covers connecting a wallet against localnet. There is no on-chain
-business logic yet beyond the default Anchor `initialize` instruction.
+- MCP server in `mcp-server/` (stdio tools for agents / Cursor).
 
 ## Project Structure
 
 ```text
 debt-bonds/
-├── chain/   # Anchor program + tests
-└── dapp/    # Next.js frontend
+├── chain/       # Anchor program + tests
+├── dapp/        # Next.js frontend
+└── mcp-server/  # MCP tools (bond market, purchase, queries)
 ```
 
 ## Requirements
@@ -116,3 +115,23 @@ NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
 
 To deploy the program to devnet, also update `[provider].cluster` in
 [`chain/Anchor.toml`](chain/Anchor.toml) and run `anchor deploy`.
+
+## 4) MCP server
+
+Agent-facing tools for bond issuance, purchase, SPL transfers, and on-chain
+queries. See [`mcp-server/README.md`](mcp-server/README.md) for setup.
+
+```bash
+cd mcp-server
+npm install
+npm run build
+```
+
+Set `SOLANA_RPC_URL` and `SOLANA_KEYPAIR_PATH`, then register the server in
+Cursor MCP settings (stdio → `node …/mcp-server/dist/index.js`).
+
+After `anchor build`, sync the IDL into the MCP package:
+
+```bash
+npm --prefix mcp-server run sync-idl
+```
