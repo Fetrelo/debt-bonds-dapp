@@ -1,0 +1,18 @@
+#!/bin/sh
+# Remove Cursor-injected Co-authored-by trailers so commits stay attribution-clean.
+# Install once per clone: ./scripts/install-git-hooks.sh
+
+MSG_FILE="$1"
+[ -n "$MSG_FILE" ] && [ -f "$MSG_FILE" ] || exit 0
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+sed '/^[Cc]o-authored-by:.*[Cc]ursor/d; /^[Cc]o-authored-by:.*cursoragent@cursor\.com/d' \
+  "$MSG_FILE" >"$tmp" || exit 0
+
+if ! cmp -s "$MSG_FILE" "$tmp"; then
+  cp "$tmp" "$MSG_FILE"
+fi
+
+exit 0

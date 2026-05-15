@@ -5,6 +5,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
 import {
   StoredDebtBond,
+  StoredStableCoin,
   StoredToken,
   formatAmount,
   formatDate,
@@ -17,6 +18,7 @@ import { useBondConfig } from "@/lib/program/useDetails";
 import { BondActions } from "@/components/tokens/details/BondActions";
 import { BondholdersTable } from "@/components/tokens/details/BondholdersTable";
 import { RegisterBondCard } from "@/components/tokens/details/RegisterBondCard";
+import { StableCoinActions } from "@/components/tokens/details/StableCoinActions";
 
 function tryPubkey(value: string): PublicKey | null {
   try {
@@ -94,6 +96,13 @@ export function TokenDetailsClient({ mint }: { mint: string }) {
           />
           <BondholdersTable token={token as StoredDebtBond} mint={mintPk} />
         </>
+      )}
+
+      {!isBond && (
+        <StableCoinActions
+          token={token as StoredStableCoin}
+          isIssuer={isIssuer}
+        />
       )}
     </div>
   );
