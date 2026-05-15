@@ -220,9 +220,13 @@ export type DebtBonds = {
     {
       "name": "createBond",
       "docs": [
-        "Creates a brand-new bond: initializes the SPL mint with decimals=0,",
-        "sets `BondConfig` PDA as the mint authority (freeze authority left",
-        "unset), and records bond terms."
+        "Creates a brand-new bond: allocates `bond_mint` (spl-token Mint size,",
+        "owner = SPL Token program) via CPI, initializes it exactly once with",
+        "mint authority `bond_config`, then writes `BondConfig`.",
+        "",
+        "We deliberately **do not** use `#[account(init, mint::...)]`: with",
+        "`mint::authority = bond_config` while `bond_config` seeds embed the mint",
+        "pubkey, Anchor can emit duplicate `InitializeMint2` CPIs (`0x6` already in use)."
       ],
       "discriminator": [
         96,
@@ -242,6 +246,9 @@ export type DebtBonds = {
         },
         {
           "name": "bondMint",
+          "docs": [
+            "New SPL mint account (fresh keypair, must sign — created in-handler)."
+          ],
           "writable": true,
           "signer": true
         },
@@ -1289,61 +1296,66 @@ export type DebtBonds = {
     },
     {
       "code": 6003,
+      "name": "mintAlreadyInUse",
+      "msg": "Bond mint pubkey is already funded or initialized — generate a fresh keypair."
+    },
+    {
+      "code": 6004,
       "name": "invalidPrice",
       "msg": "Price must be greater than zero."
     },
     {
-      "code": 6004,
+      "code": 6005,
       "name": "invalidAmount",
       "msg": "Amount must be greater than zero."
     },
     {
-      "code": 6005,
+      "code": 6006,
       "name": "listingClosed",
       "msg": "Listing is closed."
     },
     {
-      "code": 6006,
+      "code": 6007,
       "name": "listingNotActive",
       "msg": "Listing is not active."
     },
     {
-      "code": 6007,
+      "code": 6008,
       "name": "insufficientAvailable",
       "msg": "Not enough bonds available in the listing."
     },
     {
-      "code": 6008,
+      "code": 6009,
       "name": "notIssuer",
       "msg": "Signer is not the bond issuer."
     },
     {
-      "code": 6009,
+      "code": 6010,
       "name": "issuerCannotBuy",
       "msg": "Issuer cannot buy their own bonds."
     },
     {
-      "code": 6010,
+      "code": 6011,
       "name": "paymentMintMismatch",
       "msg": "Payment mint does not match the listing's payment mint."
     },
     {
-      "code": 6011,
+      "code": 6012,
       "name": "holderHasNoBonds",
       "msg": "Holder has no bonds."
     },
     {
-      "code": 6012,
+      "code": 6013,
       "name": "couponOverpaid",
       "msg": "Holder is already fully paid (would overpay)."
     },
     {
-      "code": 6013,
+      "code": 6014,
       "name": "noCouponPending",
       "msg": "No coupon pending for this holder."
     },
     {
-      "code": 6014,
+      "code": 6015,
       "name": "mathOverflow",
       "msg": "Math overflow."
     }

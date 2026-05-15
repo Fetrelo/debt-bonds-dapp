@@ -9,6 +9,7 @@ import {
 import {
   MINT_SIZE,
   TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction,
   createAssociatedTokenAccountInstruction,
   createInitializeMint2Instruction,
   createMintToInstruction,
@@ -99,4 +100,72 @@ export async function createSplToken(
   );
 
   return { mint: mintKeypair.publicKey, signature };
+}
+
+export type MintStableCoinParams = {
+  mint: PublicKey;
+  /** Wallet that will receive the freshly-minted tokens. */
+  recipient: PublicKey;
+  /** Human amount (will be scaled by `decimals`). */
+  amount: number;
+  /** Stable coin decimals (read from the local store). */
+  decimals: number;
+};
+
+/**
+ * Mints additional stable coin units to `recipient`. The connected wallet
+ * must be the stable coin's mint authority (i.e. the original issuer).
+ * Creates the recipient's associated token account idempotently so this
+ * is the only call needed end-to-end.
+ */
+export async function mintStableCoin(
+  connection: Connection,
+  wallet: WalletContextState,
+  { mint, recipient, amount, decimals }: MintStableCoinParams,
+): Promise<TransactionSignature> {
+  const payer = wallet.publicKey;
+  if (!payer || !wallet.sendTransaction) {
+    throw new Error("Wallet is not connected.");
+  }
+  if (!(amount > 0)) {
+    throw new Error("Amount must be greater than zero.");
+  }
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > 9) {
+    throw new Error("Invalid decimals for this token.");
+  }
+
+  const recipientAta = getAssociatedTokenAddressSync(mint, recipient);
+
+  // Same scaling as createSplToken to avoid precision loss for high decimals.
+  const rawAmount =
+    BigInt(Math.round(amount * 10 ** Math.min(decimals, 6))) *
+    BigInt(10) ** BigInt(Math.max(0, decimals - 6));
+  if (rawAmount <= BigInt(0)) {
+    throw new Error("Amount is too small to mint at this decimal precision.");
+  }
+
+  const tx = new Transaction().add(
+    createAssociatedTokenAccountIdempotentInstruction(
+      payer,
+      recipientAta,
+      recipient,
+      mint,
+    ),
+    createMintToInstruction(mint, recipientAta, payer, rawAmount, [], TOKEN_PROGRAM_ID),
+  );
+
+  const latestBlockhash = await connection.getLatestBlockhash();
+  tx.recentBlockhash = latestBlockhash.blockhash;
+  tx.feePayer = payer;
+
+  const signature = await wallet.sendTransaction(tx, connection);
+  await connection.confirmTransaction(
+    {
+      signature,
+      blockhash: latestBlockhash.blockhash,
+      lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+    },
+    "confirmed",
+  );
+  return signature;
 }

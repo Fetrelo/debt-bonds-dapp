@@ -13,10 +13,12 @@
 //!   SoldOut auto-flips back to Active when issuer tops up.
 
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program_pack::Pack;
 use anchor_spl::associated_token::AssociatedToken;
+use anchor_lang::system_program::{create_account, CreateAccount};
 use anchor_spl::token::{
-    self, set_authority, spl_token::instruction::AuthorityType, InitializeMint2, Mint,
-    MintTo, SetAuthority, Token, TokenAccount, Transfer,
+    self, set_authority, spl_token::instruction::AuthorityType, spl_token::state::Mint as SplMint,
+    InitializeMint2, Mint, MintTo, SetAuthority, Token, TokenAccount, Transfer,
 };
 
 declare_id!("FvpkHjRckVSJiBurrxj3gkJAK67jivvGfffvs9Xn7rnm");
@@ -30,9 +32,13 @@ pub const ESCROW_SEED: &[u8] = b"listing_escrow";
 pub mod debt_bonds {
     use super::*;
 
-    /// Creates a brand-new bond: initializes the SPL mint with decimals=0,
-    /// sets `BondConfig` PDA as the mint authority (freeze authority left
-    /// unset), and records bond terms.
+    /// Creates a brand-new bond: allocates `bond_mint` (spl-token Mint size,
+    /// owner = SPL Token program) via CPI, initializes it exactly once with
+    /// mint authority `bond_config`, then writes `BondConfig`.
+    ///
+    /// We deliberately **do not** use `#[account(init, mint::...)]`: with
+    /// `mint::authority = bond_config` while `bond_config` seeds embed the mint
+    /// pubkey, Anchor can emit duplicate `InitializeMint2` CPIs (`0x6` already in use).
     pub fn create_bond(
         ctx: Context<CreateBond>,
         nominal_value: u64,
@@ -43,14 +49,38 @@ pub mod debt_bonds {
         require!(interest_rate_bps > 0, BondError::InvalidInterestRate);
         require!(duration_years > 0, BondError::InvalidDuration);
 
-        let cpi_ctx = CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            InitializeMint2 {
-                mint: ctx.accounts.bond_mint.to_account_info(),
-            },
+        let mint_ai = ctx.accounts.bond_mint.to_account_info();
+        require!(
+            *mint_ai.owner == anchor_lang::solana_program::system_program::ID,
+            BondError::MintAlreadyInUse
         );
+        require!(
+            mint_ai.data_len() == 0 && mint_ai.lamports() == 0,
+            BondError::MintAlreadyInUse
+        );
+
+        let mint_len = SplMint::LEN;
+        let rent = Rent::get()?;
+        let lamports = rent.minimum_balance(mint_len);
+
+        create_account(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                CreateAccount {
+                    from: ctx.accounts.issuer.to_account_info(),
+                    to: mint_ai.clone(),
+                },
+            ),
+            lamports,
+            mint_len as u64,
+            &anchor_spl::token::spl_token::ID,
+        )?;
+
         token::initialize_mint2(
-            cpi_ctx,
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                InitializeMint2 { mint: mint_ai },
+            ),
             0,
             &ctx.accounts.bond_config.key(),
             None,
@@ -368,13 +398,9 @@ pub struct CreateBond<'info> {
     #[account(mut)]
     pub issuer: Signer<'info>,
 
-    #[account(
-        init,
-        payer = issuer,
-        mint::decimals = 0,
-        mint::authority = bond_config,
-    )]
-    pub bond_mint: Account<'info, Mint>,
+    /// New SPL mint account (fresh keypair, must sign — created in-handler).
+    #[account(mut, signer)]
+    pub bond_mint: Signer<'info>,
 
     #[account(
         init,
@@ -629,6 +655,8 @@ pub enum BondError {
     InvalidInterestRate,
     #[msg("Duration must be at least one year.")]
     InvalidDuration,
+    #[msg("Bond mint pubkey is already funded or initialized — generate a fresh keypair.")]
+    MintAlreadyInUse,
     #[msg("Price must be greater than zero.")]
     InvalidPrice,
     #[msg("Amount must be greater than zero.")]
