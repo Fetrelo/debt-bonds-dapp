@@ -26,8 +26,9 @@ export function WalletStatusCard() {
     if (!publicKey) return;
     let cancelled = false;
     const pk = publicKey.toBase58();
+
     connection
-      .getBalance(publicKey)
+      .getBalance(publicKey, "confirmed")
       .then((lamports) => {
         if (!cancelled) {
           setBalanceEntry({ pk, sol: lamports / LAMPORTS_PER_SOL });
@@ -36,8 +37,22 @@ export function WalletStatusCard() {
       .catch(() => {
         // leave previous balance; the cache key check will hide it
       });
+
+    const subscriptionId = connection.onAccountChange(
+      publicKey,
+      (account) => {
+        if (!cancelled) {
+          setBalanceEntry({ pk, sol: account.lamports / LAMPORTS_PER_SOL });
+        }
+      },
+      { commitment: "confirmed" },
+    );
+
     return () => {
       cancelled = true;
+      connection.removeAccountChangeListener(subscriptionId).catch(() => {
+        // best-effort cleanup
+      });
     };
   }, [publicKey, connection]);
 
