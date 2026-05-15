@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   StoredDebtBond,
   StoredToken,
@@ -38,6 +39,7 @@ export function TokensTable({ tokens }: { tokens: StoredToken[] }) {
               <Th align="right">Duration</Th>
               <Th>Maturity</Th>
               <Th>Created</Th>
+              <Th align="right">&nbsp;</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-black/5 dark:divide-white/5">
@@ -72,9 +74,10 @@ function Th({
 function Row({ token }: { token: StoredToken }) {
   const isBond = token.kind === "bond";
   const bond = isBond ? (token as StoredDebtBond) : null;
+  const supply = isBond ? DASH : formatAmount(token.initialSupply);
 
   return (
-    <tr className="text-zinc-700 transition hover:bg-zinc-50/60 dark:text-zinc-300 dark:hover:bg-white/[0.03]">
+    <tr className="group text-zinc-700 transition hover:bg-zinc-50/60 dark:text-zinc-300 dark:hover:bg-white/[0.03]">
       <td className="px-4 py-3">
         <div className="flex flex-col">
           <span className="font-medium text-zinc-900 dark:text-zinc-50">
@@ -94,9 +97,7 @@ function Row({ token }: { token: StoredToken }) {
       <td className="px-4 py-3 text-right font-mono text-xs">
         {token.decimals}
       </td>
-      <td className="px-4 py-3 text-right font-mono">
-        {formatAmount(token.initialSupply)}
-      </td>
+      <td className="px-4 py-3 text-right font-mono">{supply}</td>
       <td className="px-4 py-3 text-right font-mono">
         {bond ? formatAmount(bond.nominalValue) : DASH}
       </td>
@@ -110,6 +111,15 @@ function Row({ token }: { token: StoredToken }) {
         {bond ? formatDate(bond.maturityDate) : DASH}
       </td>
       <td className="px-4 py-3 text-xs">{formatDate(token.createdAt)}</td>
+      <td className="px-4 py-3 text-right">
+        <Link
+          href={`/tokens/${token.mint}`}
+          className="inline-flex items-center gap-1 rounded-lg border border-black/10 bg-white/70 px-2.5 py-1 text-xs font-medium text-zinc-700 transition hover:border-black/20 hover:text-zinc-900 dark:border-white/10 dark:bg-white/5 dark:text-zinc-300 dark:hover:border-white/20 dark:hover:text-zinc-50"
+        >
+          Details
+          <span aria-hidden="true">→</span>
+        </Link>
+      </td>
     </tr>
   );
 }

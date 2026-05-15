@@ -4,6 +4,7 @@ import { FormEvent, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { createSplToken } from "@/lib/createToken";
+import { createBondToken } from "@/lib/createBond";
 import {
   StoredToken,
   TokenKind,
@@ -92,68 +93,91 @@ export function CreateTokenForm({ onCreated, onCancel }: Props) {
     if (!symbol) return setError("Symbol is required.");
     if (symbol.length > 10) return setError("Symbol must be 10 chars or fewer.");
 
-    const initialSupply = parseNumber(state.initialSupply);
-    if (!(initialSupply > 0)) return setError("Initial supply must be > 0.");
+    setPending(true);
+    try {
+      if (state.kind === "stable") {
+        const initialSupply = parseNumber(state.initialSupply);
+        if (!(initialSupply > 0))
+          throw new Error("Initial supply must be > 0.");
+        const decimals = parseInt(state.decimals, 10);
+        if (!Number.isInteger(decimals) || decimals < 0 || decimals > 9) {
+          throw new Error("Decimals must be an integer between 0 and 9.");
+        }
 
-    const decimals =
-      state.kind === "stable" ? parseInt(state.decimals, 10) : 0;
-    if (state.kind === "stable") {
-      if (!Number.isInteger(decimals) || decimals < 0 || decimals > 9) {
-        return setError("Decimals must be an integer between 0 and 9.");
+        const { mint, signature } = await createSplToken(connection, wallet, {
+          decimals,
+          initialSupply,
+        });
+
+        const token: StoredToken = {
+          mint: mint.toBase58(),
+          name,
+          symbol,
+          decimals,
+          initialSupply,
+          issuer: wallet.publicKey.toBase58(),
+          signature,
+          createdAt: Date.now(),
+          kind: "stable",
+        };
+        addToken(token);
+        onCreated(token);
+        setState(initialState);
+        return;
       }
-    }
 
-    let bondTerms: ReturnType<typeof computeBondTerms> | null = null;
-    let bondInputs: {
-      nominalValue: number;
-      interestRatePct: number;
-      durationYears: number;
-    } | null = null;
-    if (state.kind === "bond") {
       const nominalValue = parseNumber(state.nominalValue);
       const interestRatePct = parseNumber(state.interestRatePct);
       const durationYears = parseNumber(state.durationYears);
-      if (!(nominalValue > 0)) return setError("Nominal value must be > 0.");
-      if (interestRatePct < 0)
-        return setError("Interest rate cannot be negative.");
-      if (!(durationYears > 0)) return setError("Duration must be > 0 years.");
-      bondInputs = { nominalValue, interestRatePct, durationYears };
-      bondTerms = computeBondTerms(bondInputs);
-    }
+      if (!Number.isInteger(nominalValue) || nominalValue <= 0) {
+        throw new Error("Nominal value must be a positive whole number.");
+      }
+      if (
+        !Number.isInteger(interestRatePct) ||
+        interestRatePct <= 0 ||
+        interestRatePct > 655
+      ) {
+        throw new Error("Interest rate must be a whole percent (1–655).");
+      }
+      if (
+        !Number.isInteger(durationYears) ||
+        durationYears <= 0 ||
+        durationYears > 255
+      ) {
+        throw new Error("Duration must be a whole number of years (1–255).");
+      }
 
-    setPending(true);
-    try {
-      const { mint, signature } = await createSplToken(connection, wallet, {
-        decimals,
-        initialSupply,
+      const { mint, bondConfig, signature } = await createBondToken(
+        connection,
+        wallet,
+        { nominalValue, interestRatePct, durationYears },
+      );
+
+      const bondTerms = computeBondTerms({
+        nominalValue,
+        interestRatePct,
+        durationYears,
       });
 
-      const createdAt = Date.now();
-      const base = {
+      const token: StoredToken = {
         mint: mint.toBase58(),
         name,
         symbol,
-        decimals,
-        initialSupply,
+        decimals: 0,
+        initialSupply: 0,
         issuer: wallet.publicKey.toBase58(),
         signature,
-        createdAt,
-      } as const;
-
-      const token: StoredToken =
-        state.kind === "bond" && bondInputs && bondTerms
-          ? {
-              ...base,
-              kind: "bond",
-              nominalValue: bondInputs.nominalValue,
-              interestRatePct: bondInputs.interestRatePct,
-              durationYears: bondInputs.durationYears,
-              annualCoupon: bondTerms.annualCoupon,
-              totalCoupons: bondTerms.totalCoupons,
-              maturityDate: bondTerms.maturityDate,
-            }
-          : { ...base, kind: "stable" };
-
+        createdAt: Date.now(),
+        kind: "bond",
+        nominalValue,
+        interestRatePct,
+        durationYears,
+        annualCoupon: bondTerms.annualCoupon,
+        totalCoupons: bondTerms.totalCoupons,
+        maturityDate: bondTerms.maturityDate,
+        onChainRegistered: true,
+        bondConfigPda: bondConfig.toBase58(),
+      };
       addToken(token);
       onCreated(token);
       setState(initialState);
@@ -190,8 +214,9 @@ export function CreateTokenForm({ onCreated, onCancel }: Props) {
             Create token
           </h3>
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-            Choose a type and fill in the details. The mint authority is your
-            connected wallet.
+            Stable coins mint to your wallet directly. Debt bonds are
+            registered on-chain — supply is minted into the listing escrow
+            when you top it up later.
           </p>
         </div>
         <button
@@ -272,24 +297,12 @@ export function CreateTokenForm({ onCreated, onCancel }: Props) {
           </>
         ) : (
           <>
-            <Field label="Initial supply (bonds)" htmlFor="initialSupply">
-              <Input
-                id="initialSupply"
-                type="number"
-                min={0}
-                step={1}
-                value={state.initialSupply}
-                onChange={(v) => update("initialSupply")(v)}
-                placeholder="100"
-                disabled={pending}
-              />
-            </Field>
             <Field label="Nominal value" htmlFor="nominalValue">
               <Input
                 id="nominalValue"
                 type="number"
-                min={0}
-                step="any"
+                min={1}
+                step={1}
                 value={state.nominalValue}
                 onChange={(v) => update("nominalValue")(v)}
                 disabled={pending}
@@ -299,19 +312,21 @@ export function CreateTokenForm({ onCreated, onCancel }: Props) {
               <Input
                 id="interestRatePct"
                 type="number"
-                min={0}
-                step="any"
+                min={1}
+                max={655}
+                step={1}
                 value={state.interestRatePct}
                 onChange={(v) => update("interestRatePct")(v)}
                 disabled={pending}
               />
             </Field>
-            <Field label="Duration (years)" htmlFor="durationYears">
+            <Field label="Duration (whole years)" htmlFor="durationYears">
               <Input
                 id="durationYears"
                 type="number"
-                min={0}
-                step="any"
+                min={1}
+                max={255}
+                step={1}
                 value={state.durationYears}
                 onChange={(v) => update("durationYears")(v)}
                 disabled={pending}

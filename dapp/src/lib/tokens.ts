@@ -24,6 +24,15 @@ export type StoredDebtBond = StoredTokenBase & {
   maturityDate: number;
   annualCoupon: number;
   totalCoupons: number;
+  /**
+   * `true` once the bond has a `BondConfig` PDA on-chain. Bonds created
+   * before the on-chain registry feature shipped will have this `false`
+   * and must be migrated via the `register_bond` instruction before they
+   * can be listed/purchased.
+   */
+  onChainRegistered: boolean;
+  /** Cached `BondConfig` PDA address, set after registration/creation. */
+  bondConfigPda?: string;
 };
 
 export type StoredToken = StoredStableCoin | StoredDebtBond;
@@ -73,6 +82,25 @@ export function addToken(token: StoredToken): void {
   cache = next;
   writeToStorage(next);
   listeners.forEach((l) => l());
+}
+
+export function getTokenByMint(mint: string): StoredToken | undefined {
+  return getTokensSnapshot().find((t) => t.mint === mint);
+}
+
+export function updateToken(
+  mint: string,
+  patch: Partial<StoredToken>,
+): StoredToken | undefined {
+  const tokens = getTokensSnapshot();
+  const idx = tokens.findIndex((t) => t.mint === mint);
+  if (idx === -1) return undefined;
+  const merged = { ...tokens[idx], ...patch } as StoredToken;
+  const next = [...tokens.slice(0, idx), merged, ...tokens.slice(idx + 1)];
+  cache = next;
+  writeToStorage(next);
+  listeners.forEach((l) => l());
+  return merged;
 }
 
 export function computeBondTerms(input: {
